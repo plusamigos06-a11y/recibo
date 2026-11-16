@@ -727,7 +727,7 @@ function onFoto(e){
     }
   }).catch(err=>{
     job.state='error';
-    const msg='No se pudo leer la foto ('+(err&&err.message?err.message:'error')+'). Escribe lote y fecha a mano o con el micrófono.';
+    const msg='No se pudo leer la foto ('+(err&&err.message?err.message:'error')+').'+(job.apiErr?' Error de la clave/API: '+job.apiErr+'.':'')+(S.apiKey?'':' Toca ⚙ y pega tu clave de API de Anthropic para que Claude lea la foto.')+' Mientras, escribe lote y fecha a mano.';
     if(job.itemId){const it=S.items.find(x=>x.id===job.itemId);if(it){it.estado='revisar';it.notas=[msg];save();render();}}
     else if(D.tk===job.tk){st.textContent=msg;}
   });
