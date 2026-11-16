@@ -649,6 +649,13 @@ function speechTo(field,text){
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 document.querySelectorAll('.mic').forEach(b=>{
   b.addEventListener('click',()=>{
+    if(NB&&NB.listen){
+      if(b.classList.contains('rec')){try{NB.stopListen();}catch(e){}return;}
+      b.classList.add('rec');flash('#capmsg','🎤 Escuchando… habla ahora');
+      nativeCall(id=>NB.listen(id)).then(t=>{b.classList.remove('rec');t=(t||'').trim();if(t){speechTo(b.dataset.for,t);flash('#capmsg','Escuché: '+t);}else flash('#capmsg','No te escuché. Toca 🎤 y habla más cerca.');})
+        .catch(e=>{b.classList.remove('rec');flash('#capmsg',(e&&e.message)||'No se pudo usar el micrófono.');});
+      return;
+    }
     if(DICT){
       if(b.classList.contains('rec')){try{DICT.stop().catch(()=>{});}catch(e){}return;}
       curField=b.dataset.for;b.classList.add('rec');
@@ -880,9 +887,46 @@ async function autoFind(file,job,w){
   }
   return {text:log||best.text,res:best.res};
 }
+
+/* ---------- puente con la app Android (ML Kit, voz, guardar, imprimir) ---------- */
+const NB=window.AndroidBridge||null;
+const NCB={};let NID=0;
+window.__nativeCb=function(id,ok,val){const f=NCB[id];if(f){delete NCB[id];f(ok,val);}};
+function nativeCall(fn){return new Promise((res,rej)=>{const id=++NID;NCB[id]=(ok,v)=>ok?res(v):rej(new Error(v));try{fn(id);}catch(e){delete NCB[id];rej(e);}});}
+function b64OfCanvas(c){return c.toDataURL('image/jpeg',.92).split(',')[1];}
+async function nativeText(canvas){return nativeCall(id=>NB.ocr(id,b64OfCanvas(canvas)));}
+async function nativeOcr(file,job){
+  const st=$('#ocrst');const img=await loadImg(file);
+  const base=toCanvas(img,0,2400);
+  let best={text:'',res:RecParser.parseLabel('',{mdy:job.mdy}),sc:-1},all='';
+  const done=r=>r.hayVenc&&(r.lote!=='N/A'||r.hayProd);
+  const tryC=async(c,tag)=>{
+    st.textContent='Leyendo en el equipo… '+tag;
+    const t=await nativeText(c);if(!t)return false;
+    all+=(all?'\n---\n':'')+t;
+    const res=RecParser.parseLabel(t,{mdy:job.mdy});const sc=localScore(res);
+    if(sc>best.sc)best={text:t,res,sc};
+    return done(res);
+  };
+  if(await tryC(base,'(foto completa)'))return {text:all,res:best.res};
+  for(const rot of [90,180,270]){
+    if(await tryC(rotCanvas(base,rot),'(giro '+rot+'°)'))return {text:all,res:best.res};
+  }
+  const regs=findRegions(base);let n=0;
+  for(const r of regs){
+    if(++n>8)break;const cw=r.x1-r.x0,ch=r.y1-r.y0;if(cw<40||ch<30)continue;
+    const k=Math.min(2.5,2000/Math.max(cw,ch));
+    const c=document.createElement('canvas');c.width=Math.round(cw*k);c.height=Math.round(ch*k);
+    c.getContext('2d').drawImage(base,r.x0,r.y0,cw,ch,0,0,c.width,c.height);
+    const cc=grayStretch(c,false);
+    for(const rot of [0,90,180,270]){if(await tryC(rotCanvas(cc,rot),'(zona '+n+')'))return {text:all,res:best.res};}
+  }
+  return {text:all||best.text,res:best.res};
+}
 let AUTO_SIGN=(window.__AUTO_SIGN!==undefined?window.__AUTO_SIGN:-1);
 function localScore(r){return (r.hayVenc?2:0)+(r.hayProd?1:0)+(r.lote!=='N/A'?1:0);}
 async function runOcr(file,job){
+  if(NB&&NB.ocr){try{const r=await nativeOcr(file,job);if(r.res.hayVenc||r.res.lote!=='N/A'||r.res.hayProd||!(S.apiKey||S.gemKey))return r;}catch(e){job.apiErr=e&&e.message;}}
   if(!SAMPLE&&(S.apiKey||S.gemKey)&&navigator.onLine){try{const t=S.apiKey?await apiVision(file):await gemVision(file);return {text:t,res:RecParser.parseLabel(t,{mdy:job.mdy})};}catch(e){job.apiErr=e&&e.message;}}
   if(SAMPLE){try{const t=await visionText(file);return {text:t,res:RecParser.parseLabel(t,{mdy:job.mdy})};}catch(e){if(!(window.Tesseract||!window.claude))throw e;}}
   // Lector local: varias pasadas (rotaciones y filtros) hasta encontrar fecha o lote
@@ -989,6 +1033,7 @@ $('#bPrint').onclick=()=>{
   if(!S.items.length){flash('#lstmsg','No hay productos para imprimir.');return;}
   if(window.claude){showPreview();flash('#lstmsg','Aquí no se puede imprimir; se muestra la vista previa. En la versión instalada sí imprime.');return;}
   buildPrint();
+  if(NB&&NB.print){try{NB.print();}catch(e){flash('#lstmsg','No se pudo abrir la impresión.');}return;}
   try{window.print();}catch(e){flash('#lstmsg','Este navegador bloqueó la impresión. Usa "Descargar Excel" y imprime desde ahí.');}
 };
 
@@ -1021,7 +1066,8 @@ $('#bXls').onclick=async()=>{
     const buf=await wb.xlsx.writeBuffer();
     const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const fname='recibo_'+fechaRecibo().replace(/\//g,'-')+'.xlsx';
-    if(DL){await DL.save({filename:fname,data:blob});}
+    if(NB&&NB.saveFile){const b64=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(String(fr.result).split(',')[1]);fr.readAsDataURL(blob);});await nativeCall(id=>NB.saveFile(id,fname,b64,blob.type));}
+    else if(DL){await DL.save({filename:fname,data:blob});}
     else{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;document.body.appendChild(a);a.click();a.remove();}
     flash('#lstmsg','Excel generado: '+fname);
   }catch(e){flash('#lstmsg',e&&e.code==='declined'?'Descarga cancelada.':'No se pudo generar el Excel ('+(e.message||'error')+'). Revisa la conexión a internet la primera vez.');}
