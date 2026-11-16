@@ -101,10 +101,11 @@ details{margin-top:8px;font-size:13px;color:var(--mut)}details pre{white-space:p
   <div id="supNote" class="msg hide" style="background:#ecfdf5">Suministro: no lleva fecha ni lote, se pone <b>N/A</b> automáticamente. Solo pon la cantidad.</div>
   <div id="photoBox">
   <div class="photo">
-    <button class="btn sec" id="btnFoto" style="flex:1">📷 Tomar foto</button>
+    <button class="btn sec" id="btnFoto" style="flex:1">📷 Cámara con recuadro</button>
     <button class="btn ghost" id="btnGal" style="flex:1">🖼 Elegir foto</button>
     <img id="thumb" class="hide" alt="">
     <input type="file" id="file" accept="image/*" capture="environment" class="hide">
+    <button class="btn ghost hide" id="btnCapNat" style="flex:1">📸 Cámara normal</button>
     <input type="file" id="file2" accept="image/*" class="hide">
   </div>
   <div class="photo" style="margin-top:8px"><span style="font-size:14px;color:var(--mut);font-weight:600">Fechas de la foto:</span>
@@ -191,6 +192,20 @@ details{margin-top:8px;font-size:13px;color:var(--mut)}details pre{white-space:p
   <div class="grid2"><button class="btn ghost" id="setClose">Cerrar</button><button class="btn ok" id="setSave">Guardar</button></div>
 </div></div>
 
+<div id="modalCam" class="modal hide" style="padding:0;background:#000"><div style="max-width:none;width:100%;height:100%;border-radius:0;padding:0;background:#000;position:relative;overflow:hidden">
+  <video id="camVid" playsinline autoplay muted style="width:100%;height:100%;object-fit:cover"></video>
+  <div id="camBox" style="position:absolute;left:6%;right:6%;top:32%;height:26%;border:3px solid #22c55e;border-radius:10px;box-shadow:0 0 0 9999px #0008;pointer-events:none"></div>
+  <div style="position:absolute;top:12px;left:0;right:0;text-align:center;color:#fff;font-size:17px;padding:0 10px;text-shadow:0 1px 3px #000">Pon el texto <b>derecho</b> y llenando el recuadro verde (fecha y lote)</div>
+  <div id="camMsg" style="position:absolute;top:56px;left:0;right:0;text-align:center;color:#fde68a;font-size:15px"></div>
+  <div style="position:absolute;bottom:14px;left:0;right:0;display:flex;gap:8px;justify-content:center;padding:0 10px;flex-wrap:wrap">
+    <button class="btn ghost" id="camCancel" style="width:auto;padding:12px 16px;font-size:17px">✕</button>
+    <button class="btn ghost" id="camTorch" style="width:auto;padding:12px 16px;font-size:17px">🔦</button>
+    <button class="btn ghost" id="camSize" style="width:auto;padding:12px 16px;font-size:17px">↕ Recuadro</button>
+    <button class="btn ghost" id="camRot" style="width:auto;padding:12px 16px;font-size:17px">↻ Girar</button>
+    <button class="btn ok" id="camShot" style="width:auto;padding:12px 26px;font-size:20px">📸 Capturar</button>
+  </div>
+</div></div>
+
 <div id="modalPrev" class="modal hide"><div style="max-width:640px;max-height:88vh;overflow:auto">
   <h2>Vista previa (así se imprime)</h2><div id="prevBody"></div>
   <button class="btn" id="prevClose">Cerrar</button>
@@ -256,6 +271,9 @@ details{margin-top:8px;font-size:13px;color:var(--mut)}details pre{white-space:p
     // MAR 2027  MAR/27
     add(new RegExp('\\b(' + MON + ')\\.?\\s*[\\/\\-. ,]?\\s*(?:DE\\s+|DEL\\s+)?(\\d{4}|\\d{2})\\b', 'g'),
       m => ({ d: null, m: MESES[m[1]], y: year4(m[2]) }));
+    // 26.03 27  /  26 03.27 (OCR suele perder un separador; solo con palabra clave)
+    add(/\b(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s+(\d{4}|\d{2})\b/g, m => ({ ...orden(+m[1], +m[2], mdy), y: year4(m[3]) }), true);
+    add(/\b(\d{1,2})\s+(\d{1,2})\s*[\/\-.]\s*(\d{4}|\d{2})\b/g, m => ({ ...orden(+m[1], +m[2], mdy), y: year4(m[3]) }), true);
     // 03/2027
     add(/\b(\d{1,2})\s*[\/\-.]\s*(20\d{2})\b/g, m => ({ d: null, m: +m[1], y: +m[2] }));
     // 03/27 (solo con palabra clave)
@@ -706,27 +724,91 @@ async function visionText(file){
   const r=await SAMPLE(VPROMPT,{images:[blob],modelTier:'quick',cache:false});
   const t=String(r.text||'').trim();return t==='NADA'?'':t;
 }
+function loadImg(file){return new Promise((res,rej)=>{const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{URL.revokeObjectURL(url);res(img);};img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('No se pudo abrir la foto'));};img.src=url;});}
+function toCanvas(img,targetW,maxSide){
+  let k=1;if(targetW)k=targetW/img.width;if(maxSide)k=Math.min(k,maxSide/Math.max(img.width,img.height));
+  const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*k));c.height=Math.max(1,Math.round(img.height*k));
+  c.getContext('2d',{willReadFrequently:true}).drawImage(img,0,0,c.width,c.height);return c;
+}
+function rotCanvas(c,deg){
+  if(!deg)return c;const o=document.createElement('canvas');const sw=deg%180!==0;o.width=sw?c.height:c.width;o.height=sw?c.width:c.height;
+  const x=o.getContext('2d');x.translate(o.width/2,o.height/2);x.rotate(deg*Math.PI/180);x.drawImage(c,-c.width/2,-c.height/2);return o;
+}
+function grayStretch(c,otsu){
+  const x=c.getContext('2d',{willReadFrequently:true});const id=x.getImageData(0,0,c.width,c.height),p=id.data,hist=new Uint32Array(256);
+  for(let i=0;i<p.length;i+=4){const g=(p[i]*.299+p[i+1]*.587+p[i+2]*.114)|0;p[i]=g;hist[g]++;}
+  const tot=c.width*c.height;let a=0,lo=0,hi=255;
+  for(let i=0;i<256;i++){a+=hist[i];if(a>tot*.01){lo=i;break;}}a=0;for(let i=255;i>=0;i--){a+=hist[i];if(a>tot*.01){hi=i;break;}}
+  const sc=hi>lo+10?255/(hi-lo):1;let th=-1;
+  if(otsu){let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];let sb=0,wb=0,mx=0;for(let i=0;i<256;i++){wb+=hist[i];if(!wb)continue;const wf=tot-wb;if(!wf)break;sb+=i*hist[i];const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);if(v>mx){mx=v;th=i;}}}
+  const o=document.createElement('canvas');o.width=c.width;o.height=c.height;const ox=o.getContext('2d');const od=ox.createImageData(c.width,c.height);
+  for(let i=0;i<p.length;i+=4){let v=Math.max(0,Math.min(255,(p[i]-lo)*sc));if(th>=0)v=p[i]>th?255:0;od.data[i]=od.data[i+1]=od.data[i+2]=v;od.data[i+3]=255;}
+  ox.putImageData(od,0,0);return o;
+}
+function localScore(r){return (r.hayVenc?2:0)+(r.hayProd?1:0)+(r.lote!=='N/A'?1:0);}
 async function runOcr(file,job){
   if(!SAMPLE&&(S.apiKey||S.gemKey)&&navigator.onLine){try{const t=S.apiKey?await apiVision(file):await gemVision(file);return {text:t,res:RecParser.parseLabel(t,{mdy:job.mdy})};}catch(e){job.apiErr=e&&e.message;}}
   if(SAMPLE){try{const t=await visionText(file);return {text:t,res:RecParser.parseLabel(t,{mdy:job.mdy})};}catch(e){if(!(window.Tesseract||!window.claude))throw e;}}
-  const {canvas}=await prep(file,2200);
+  // Lector local: varias pasadas (rotaciones y filtros) hasta encontrar fecha o lote
+  const st=$('#ocrst');
+  st.textContent='Cargando el lector… (la primera vez tarda un poco)';
   const w=await getWorker();
-  let r=await w.recognize(canvas);let text=r.data.text||'';let res=RecParser.parseLabel(text,{mdy:job.mdy});
-  if(!res.hayVenc&&!res.hayProd){
-    await w.setParameters({tessedit_pageseg_mode:'6'});
-    const r2=await w.recognize(canvas);await w.setParameters({tessedit_pageseg_mode:'11'});
-    const t2=r2.data.text||'';const res2=RecParser.parseLabel(t2,{mdy:job.mdy});
-    if(res2.hayVenc||res2.hayProd||(res.lote==='N/A'&&res2.lote!=='N/A')){res=res2;text=text+'\n---\n'+t2;}
+  const img=await loadImg(file);
+  const crop=!!job.cropped;
+  const base=toCanvas(img,crop?Math.min(1800,Math.max(1100,img.width)):0,crop?0:2200);
+  const rots=crop?[0,180,90,270]:[0,180];
+  await w.setParameters({tessedit_pageseg_mode:crop?'6':'11'});
+  let best={text:'',res:RecParser.parseLabel('',{mdy:job.mdy}),sc:-1};let all='';
+  outer:for(const rot of rots){
+    const rc=rotCanvas(base,rot);
+    for(const otsu of [false,true]){
+      st.textContent='Leyendo… (giro '+rot+'°, filtro '+(otsu?'B':'A')+')';
+      const g=grayStretch(rc,otsu);
+      const r=await w.recognize(g);const t=r.data.text||'';all+=(all?'\n---\n':'')+t;
+      const res=RecParser.parseLabel(t,{mdy:job.mdy});const sc=localScore(res);
+      if(sc>best.sc){best={text:t,res,sc};}
+      if(res.hayVenc||(res.hayProd&&res.lote!=='N/A'))break outer;
+    }
   }
-  return {text,res};
+  return {text:all||best.text,res:best.res};
 }
-$('#btnFoto').onclick=()=>$('#file').click();
+/* ---------- cámara con recuadro ---------- */
+let camStream=null,camRotDeg=0,camSizeIdx=0,camTorchOn=false;
+const CAM_SIZES=[26,40,60];
+function stopCam(){if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;}$('#modalCam').classList.add('hide');}
+async function openCam(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){flash('#capmsg','Esta cámara no está disponible aquí; se abrirá la cámara normal.');$('#file').click();return;}
+  $('#camMsg').textContent='';
+  try{
+    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:3840},height:{ideal:2160}},audio:false});
+    $('#camVid').srcObject=camStream;$('#modalCam').classList.remove('hide');camRotDeg=0;camTorchOn=false;
+    const tr=camStream.getVideoTracks()[0];
+    try{await tr.applyConstraints({advanced:[{focusMode:'continuous'}]});}catch(e){}
+    const caps=tr.getCapabilities?tr.getCapabilities():{};$('#camTorch').classList.toggle('hide',!caps.torch);
+  }catch(e){flash('#capmsg','No se pudo abrir la cámara ('+(e&&e.name==='NotAllowedError'?'permiso denegado':'error')+'). Se abrirá la cámara normal.');$('#file').click();}
+}
+$('#camCancel').onclick=stopCam;
+$('#camSize').onclick=()=>{camSizeIdx=(camSizeIdx+1)%CAM_SIZES.length;const h=CAM_SIZES[camSizeIdx];const b=$('#camBox');b.style.height=h+'%';b.style.top=(50-h/2-4)+'%';};
+$('#camRot').onclick=()=>{camRotDeg=(camRotDeg+90)%360;$('#camMsg').textContent='La foto se girará '+camRotDeg+'° antes de leerla';};
+$('#camTorch').onclick=async()=>{try{const tr=camStream.getVideoTracks()[0];camTorchOn=!camTorchOn;await tr.applyConstraints({advanced:[{torch:camTorchOn}]});}catch(e){}};
+$('#camShot').onclick=()=>{
+  const v=$('#camVid');if(!v.videoWidth)return;
+  const vr=v.getBoundingClientRect(),br=$('#camBox').getBoundingClientRect();
+  const s=Math.max(vr.width/v.videoWidth,vr.height/v.videoHeight);
+  const ox=(v.videoWidth*s-vr.width)/2,oy=(v.videoHeight*s-vr.height)/2;
+  const sx=Math.max(0,(br.left-vr.left+ox)/s),sy=Math.max(0,(br.top-vr.top+oy)/s);
+  const sw=Math.min(v.videoWidth-sx,br.width/s),sh=Math.min(v.videoHeight-sy,br.height/s);
+  const c=document.createElement('canvas');c.width=Math.round(sw);c.height=Math.round(sh);c.getContext('2d').drawImage(v,sx,sy,sw,sh,0,0,c.width,c.height);
+  const rc=rotCanvas(c,camRotDeg);
+  rc.toBlob(b=>{stopCam();if(b)handlePhoto(b,true);},'image/jpeg',.93);
+};
+$('#btnFoto').onclick=openCam;$('#btnCapNat').onclick=()=>$('#file').click();
 $('#btnGal').onclick=()=>$('#file2').click();
 $('#fmtDMY').onclick=()=>setFmt(false);$('#fmtMDY').onclick=()=>setFmt(true);
-function onFoto(e){
-  const f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;
+function onFoto(e){const f=e.target.files&&e.target.files[0];e.target.value='';if(f)handlePhoto(f,false);}
+function handlePhoto(f,cropped){
   const th=$('#thumb');th.src=URL.createObjectURL(f);th.classList.remove('hide');
-  const job={id:++jobs,state:'pending',itemId:null,tk:D.tk,mdy:D.mdy};D.job=job;
+  const job={id:++jobs,state:'pending',itemId:null,tk:D.tk,mdy:D.mdy,cropped:!!cropped};D.job=job;
   const st=$('#ocrst');st.textContent='Leyendo la foto… puedes seguir con la cantidad.';st.classList.remove('hide');
   queue=queue.then(()=>runOcr(f,job)).then(out=>{
     job.state='done';job.res=out.res;job.text=out.text;
