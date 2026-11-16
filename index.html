@@ -655,6 +655,16 @@ document.querySelectorAll('.mic').forEach(b=>{
     if(!SR){flash('#capmsg','El dictado por voz no está disponible en este navegador. Usa Chrome, o escribe el dato.');return;}
     if(b.classList.contains('rec')&&b._r){try{b._r.stop();}catch(e){}return;}
     const langs=['es-DO','es-419','es-US','es-ES'];let li=0;
+    const DENIED='🎤 El micrófono está bloqueado para esta app. Ve a Ajustes de Chrome → Configuración de sitios → Micrófono y permite este sitio; o en Ajustes de Android → Apps → Chrome → Permisos → Micrófono. Mientras tanto usa el micrófono del teclado.';
+    const prepararMic=async()=>{
+      try{
+        if(navigator.permissions&&navigator.permissions.query){const q=await navigator.permissions.query({name:'microphone'});if(q.state==='denied')return 'denied';}
+      }catch(e){}
+      try{
+        if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){const s=await navigator.mediaDevices.getUserMedia({audio:true});s.getTracks().forEach(t=>t.stop());}
+      }catch(e){return (e&&(e.name==='NotAllowedError'||e.name==='SecurityError'))?'denied':'ok';}
+      return 'ok';
+    };
     const msgs={'not-allowed':'Permiso de micrófono denegado. Actívalo en Ajustes del sitio de Chrome → Micrófono.','service-not-allowed':'El dictado está bloqueado en este equipo. Revisa que Google/Chrome tenga permiso de micrófono.','audio-capture':'No encuentro el micrófono del equipo.','network':'El dictado necesita internet.','no-speech':'No te escuché. Toca 🎤 y habla más cerca.','aborted':''};
     const start=()=>{
       const r=new SR();b._r=r;r.lang=langs[li];r.interimResults=true;r.maxAlternatives=3;r.continuous=false;
@@ -675,7 +685,7 @@ document.querySelectorAll('.mic').forEach(b=>{
       };
       try{r.start();}catch(x){b.classList.remove('rec');flash('#capmsg','No se pudo iniciar el micrófono, intenta de nuevo.');}
     };
-    start();
+    prepararMic().then(r=>{if(r==='denied'){const c=$('#capmsg');c.textContent=DENIED;c.classList.remove('hide');clearTimeout(c._t);c._t=setTimeout(()=>c.classList.add('hide'),9000);return;}start();});
   });
 });
 
