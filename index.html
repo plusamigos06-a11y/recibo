@@ -177,10 +177,14 @@ details{margin-top:8px;font-size:13px;color:var(--mut)}details pre{white-space:p
   <button class="btn ghost" id="impClose">Cerrar</button>
 </div></div>
 
-<div id="modalSet" class="modal hide"><div>
-  <h2>Ajustes</h2>
-  <p style="margin:0 0 8px;color:var(--mut);font-size:15px">Para leer las fotos con Claude (más preciso, necesita internet), pega aquí tu clave de API de Anthropic. Se guarda solo en este equipo. Sin clave, la app lee la foto con el lector del propio equipo.</p>
-  <label for="apiKey" style="margin-top:0">Clave de API (empieza con sk-ant-)</label>
+<div id="modalSet" class="modal hide"><div style="max-height:90vh;overflow:auto">
+  <h2>Ajustes: lectura de fotos con IA</h2>
+  <p style="margin:0 0 8px;color:var(--mut);font-size:15px">Pega UNA de estas claves (se guarda solo en este equipo). Necesita internet. Sin clave, usa el lector del equipo (menos preciso).</p>
+  <label for="gemKey" style="margin-top:0">Opción gratis: clave de Google Gemini (aistudio.google.com/apikey)</label>
+  <input id="gemKey" type="password" autocomplete="off" placeholder="AIza...">
+  <label for="gemModel">Modelo de Gemini</label>
+  <input id="gemModel" placeholder="gemini-2.5-flash">
+  <label for="apiKey">O clave de Anthropic (Claude, de pago): sk-ant-</label>
   <input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-...">
   <div id="setMsg" class="note"></div>
   <div style="height:10px"></div>
@@ -438,7 +442,7 @@ const CATALOGO_BASE = [["0183","ATOMIZADORES PLASTICOS 32 OZ","UNIDAD","S"],["02
 'use strict';
 const $=s=>document.querySelector(s);
 const KEY='recibo_almacen_v1';
-let S={mode:null,fechaManual:'',items:[],extra:[],fmt:{},fmtLast:false,apiKey:''};
+let S={mode:null,fechaManual:'',items:[],extra:[],fmt:{},fmtLast:false,apiKey:'',gemKey:'',gemModel:'gemini-2.5-flash'};
 try{const raw=localStorage.getItem(KEY);if(raw)S=Object.assign(S,JSON.parse(raw));}catch(e){}
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}};
 
@@ -689,6 +693,13 @@ async function apiVision(file){
   if(!resp.ok){const t=await resp.text().catch(()=>'');throw new Error('API '+resp.status+(resp.status===401?' (clave inválida)':'')+' '+t.slice(0,80));}
   const j=await resp.json();const t=((j.content||[]).map(c=>c.text||'').join('\n')).trim();return t==='NADA'?'':t;
 }
+async function gemVision(file){
+  const blob=await scaleJpeg(file,1600);const b64=await blobB64(blob);
+  const model=(S.gemModel||'gemini-2.5-flash').trim();
+  const resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(S.gemKey),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:VPROMPT},{inline_data:{mime_type:'image/jpeg',data:b64}}]}],generationConfig:{temperature:0}})});
+  if(!resp.ok){const t=await resp.text().catch(()=>'');throw new Error('Gemini '+resp.status+(resp.status===400||resp.status===403?' (revisa la clave)':resp.status===404?' (revisa el nombre del modelo en ⚙)':resp.status===429?' (límite gratis alcanzado, espera un momento)':'')+' '+t.slice(0,80));}
+  const j=await resp.json();const t=(((j.candidates||[])[0]||{}).content||{parts:[]}).parts.map(p=>p.text||'').join('\n').trim();return t==='NADA'?'':t;
+}
 async function visionText(file){
   const lim=await SAMPLE.limits();if(!lim||!lim.images)throw new Error('sin imágenes');
   const blob=await scaleJpeg(file,1600);
@@ -696,7 +707,7 @@ async function visionText(file){
   const t=String(r.text||'').trim();return t==='NADA'?'':t;
 }
 async function runOcr(file,job){
-  if(!SAMPLE&&S.apiKey&&navigator.onLine){try{const t=await apiVision(file);return {text:t,res:RecParser.parseLabel(t,{mdy:job.mdy})};}catch(e){job.apiErr=e&&e.message;}}
+  if(!SAMPLE&&(S.apiKey||S.gemKey)&&navigator.onLine){try{const t=S.apiKey?await apiVision(file):await gemVision(file);return {text:t,res:RecParser.parseLabel(t,{mdy:job.mdy})};}catch(e){job.apiErr=e&&e.message;}}
   if(SAMPLE){try{const t=await visionText(file);return {text:t,res:RecParser.parseLabel(t,{mdy:job.mdy})};}catch(e){if(!(window.Tesseract||!window.claude))throw e;}}
   const {canvas}=await prep(file,2200);
   const w=await getWorker();
@@ -727,7 +738,7 @@ function onFoto(e){
     }
   }).catch(err=>{
     job.state='error';
-    const msg='No se pudo leer la foto ('+(err&&err.message?err.message:'error')+').'+(job.apiErr?' Error de la clave/API: '+job.apiErr+'.':'')+(S.apiKey?'':' Toca ⚙ y pega tu clave de API de Anthropic para que Claude lea la foto.')+' Mientras, escribe lote y fecha a mano.';
+    const msg='No se pudo leer la foto ('+(err&&err.message?err.message:'error')+').'+(job.apiErr?' Error de la clave/API: '+job.apiErr+'.':'')+((S.apiKey||S.gemKey)?'':' Toca ⚙ y pega una clave (Gemini es gratis) para que una IA lea la foto.')+' Mientras, escribe lote y fecha a mano.';
     if(job.itemId){const it=S.items.find(x=>x.id===job.itemId);if(it){it.estado='revisar';it.notas=[msg];save();render();}}
     else if(D.tk===job.tk){st.textContent=msg;}
   });
@@ -836,9 +847,14 @@ $('#impFile').addEventListener('change',async e=>{
 });
 
 /* ---------- ajustes ---------- */
-$('#setBtn').onclick=()=>{$('#apiKey').value=S.apiKey||'';$('#setMsg').textContent=S.apiKey?'Lectura con Claude: activada.':'';$('#modalSet').classList.remove('hide');};
+$('#setBtn').onclick=()=>{$('#apiKey').value=S.apiKey||'';$('#gemKey').value=S.gemKey||'';$('#gemModel').value=S.gemModel||'gemini-2.5-flash';$('#setMsg').textContent=S.apiKey?'Lectura con Claude: activada.':S.gemKey?'Lectura con Gemini: activada.':'';$('#modalSet').classList.remove('hide');};
 $('#setClose').onclick=()=>$('#modalSet').classList.add('hide');
-$('#setSave').onclick=()=>{const k=$('#apiKey').value.trim();if(k&&!/^sk-ant-/.test(k)){$('#setMsg').textContent='La clave debe empezar con sk-ant-';return;}S.apiKey=k;save();$('#setMsg').textContent=k?'Guardada. Las fotos se leerán con Claude cuando haya internet.':'Clave borrada. Se usará el lector del equipo.';};
+$('#setSave').onclick=()=>{
+  const k=$('#apiKey').value.trim(),g=$('#gemKey').value.trim();
+  if(k&&!/^sk-ant-/.test(k)){$('#setMsg').textContent='La clave de Anthropic debe empezar con sk-ant-';return;}
+  S.apiKey=k;S.gemKey=g;S.gemModel=$('#gemModel').value.trim()||'gemini-2.5-flash';save();
+  $('#setMsg').textContent=k?'Guardada. Se usará Claude para leer las fotos.':g?'Guardada. Se usará Gemini para leer las fotos.':'Claves borradas. Se usará el lector del equipo.';
+};
 
 /* ---------- inicio ---------- */
 try{if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register('sw.js').catch(()=>{});}catch(e){}
