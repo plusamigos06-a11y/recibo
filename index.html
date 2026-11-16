@@ -628,10 +628,18 @@ $('#tCap').onclick=()=>tab('cap');$('#tLst').onclick=()=>tab('lst');tab('cap');
 /* ---------- voz ---------- */
 const NUM={CERO:0,UNO:1,UNA:1,DOS:2,TRES:3,CUATRO:4,CINCO:5,SEIS:6,SIETE:7,OCHO:8,NUEVE:9,DIEZ:10,ONCE:11,DOCE:12,TRECE:13,CATORCE:14,QUINCE:15,VEINTE:20,TREINTA:30,CUARENTA:40,CINCUENTA:50,SESENTA:60,SETENTA:70,OCHENTA:80,NOVENTA:90,CIEN:100,CIENTO:100};
 function spokenDigits(t){return strip(t).split(/\s+/).map(w=>(w in NUM&&NUM[w]<10)?NUM[w]:w).join('');}
+const LET={A:'A',BE:'B',CE:'C',DE:'D',E:'E',EFE:'F',GE:'G',HACHE:'H',I:'I',JOTA:'J',KA:'K',ELE:'L',EME:'M',ENE:'N',O:'O',PE:'P',CU:'Q',ERRE:'R',ESE:'S',TE:'T',U:'U',UVE:'V',VE:'V',EQUIS:'X',YE:'Y',ZETA:'Z'};
+function spokenAlnum(t){
+  return strip(t).replace(/[.,]/g,' ').split(/\s+/).filter(w=>w&&!['LOTE','LOT','NUMERO','NRO'].includes(w)).map(w=>{
+    if(w in NUM&&NUM[w]<10)return String(NUM[w]);
+    if(w in LET)return LET[w];
+    return w;
+  }).join('').replace(/[^A-Z0-9\-\/]/g,'');
+}
 function speechTo(field,text){
   text=String(text||'').trim();
   if(field==='codigo'){const d=spokenDigits(text);const v=/^[A-Z0-9\-]+$/.test(d.replace(/\s+/g,''))?d.replace(/\s+/g,''):text;$('#codigo').value=v;renderSug();showProd();}
-  else if(field==='lote'){$('#lote').value=text.toUpperCase().replace(/\s+/g,'');D.edL=true;}
+  else if(field==='lote'){$('#lote').value=spokenAlnum(text);D.edL=true;}
   else if(field==='venc'){const f=RecParser.parseFechaSuelta(text,D.mdy);$('#venc').value=f||text.toUpperCase();D.edV=true;}
   else if(field==='cant'){const m=text.replace(',','.').match(/\d+(\.\d+)?/);let v=m?m[0]:null;if(!v){const ws=strip(text).split(/\s+/);let tot=0,any=false;for(const w of ws){if(w in NUM){tot+=NUM[w];any=true;}}if(any)v=String(tot);}$('#cant').value=v||text;upd();}
 }
@@ -644,13 +652,30 @@ document.querySelectorAll('.mic').forEach(b=>{
       DICT.start().catch(err=>{b.classList.remove('rec');if(err&&err.code!=='dismissed')flash('#capmsg','No se pudo usar el micrófono.');});
       return;
     }
-    if(!SR){flash('#capmsg','El dictado no está disponible en este navegador.');return;}
-    const r=new SR();r.lang='es-DO';r.interimResults=false;r.maxAlternatives=1;
-    b.classList.add('rec');
-    r.onresult=e=>speechTo(b.dataset.for,e.results[0][0].transcript);
-    r.onerror=()=>{flash('#capmsg','No se pudo usar el micrófono (revisa el permiso).');};
-    r.onend=()=>b.classList.remove('rec');
-    try{r.start();}catch(e){b.classList.remove('rec');}
+    if(!SR){flash('#capmsg','El dictado por voz no está disponible en este navegador. Usa Chrome, o escribe el dato.');return;}
+    if(b.classList.contains('rec')&&b._r){try{b._r.stop();}catch(e){}return;}
+    const langs=['es-DO','es-419','es-US','es-ES'];let li=0;
+    const msgs={'not-allowed':'Permiso de micrófono denegado. Actívalo en Ajustes del sitio de Chrome → Micrófono.','service-not-allowed':'El dictado está bloqueado en este equipo. Revisa que Google/Chrome tenga permiso de micrófono.','audio-capture':'No encuentro el micrófono del equipo.','network':'El dictado necesita internet.','no-speech':'No te escuché. Toca 🎤 y habla más cerca.','aborted':''};
+    const start=()=>{
+      const r=new SR();b._r=r;r.lang=langs[li];r.interimResults=true;r.maxAlternatives=3;r.continuous=false;
+      let final='',gotAny=false;
+      b.classList.add('rec');flash('#capmsg','🎤 Escuchando… habla ahora');
+      r.onresult=e=>{gotAny=true;let tmp='';for(let k=e.resultIndex;k<e.results.length;k++){const res=e.results[k];if(res.isFinal)final+=res[0].transcript+' ';else tmp+=res[0].transcript;}
+        if(tmp){const c=$('#capmsg');c.textContent='🎤 '+tmp;c.classList.remove('hide');}};
+      r.onerror=e=>{
+        if(e.error==='language-not-supported'&&li<langs.length-1){li++;try{r.abort();}catch(x){}setTimeout(start,150);r._retry=true;return;}
+        const m=msgs[e.error];if(m)flash('#capmsg',m);else if(e.error)flash('#capmsg','No se pudo usar el micrófono ('+e.error+').');r._err=true;
+      };
+      r.onend=()=>{
+        if(r._retry)return;
+        b.classList.remove('rec');b._r=null;
+        const t=final.trim();
+        if(t){speechTo(b.dataset.for,t);flash('#capmsg','Escuché: '+t);}
+        else if(!r._err&&!gotAny)flash('#capmsg','No te escuché. Toca 🎤 y habla más cerca.');
+      };
+      try{r.start();}catch(x){b.classList.remove('rec');flash('#capmsg','No se pudo iniciar el micrófono, intenta de nuevo.');}
+    };
+    start();
   });
 });
 
