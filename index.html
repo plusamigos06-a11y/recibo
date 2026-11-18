@@ -590,12 +590,15 @@ function guardar(){
     frec:D.frec||fechaRecibo(),estado:'ok',notas:[],edited:false};
   if(job&&job.state==='pending'){it.estado='leyendo';job.itemId=it.id;}
   else if(job&&job.state==='done'&&job.res.revisar){it.estado='revisar';it.notas=job.res.notas;}
-  S.items.push(it);
+  const ri=D.rid?S.items.findIndex(x=>x.id===D.rid):-1;
+  if(ri>=0){it.id=D.rid;S.items[ri]=it;}else S.items.push(it);
   if(D.pid){S.orden=(S.orden||[]).filter(x=>!(x.id===D.pid&&normCode(x.codigo)===normCode(p.codigo)));}
   save();render();
   flash('#capmsg','Guardado: '+it.codigo+' · '+it.cant+' '+it.uom);
   resetCapture();
-  if(S.orden&&S.orden.length)loadPend(S.orden[0].id);else renderOrden();
+  const nx=S.items.find(x=>x.estado==='pend');
+  if(ri>=0&&nx)loadItem(nx.id);
+  else if(S.orden&&S.orden.length)loadPend(S.orden[0].id);else renderOrden();
 }
 $('#guardar').addEventListener('click',guardar);
 
@@ -731,6 +734,14 @@ function renderOrden(){
   if(ORD_RAW){const d=document.createElement('details');d.innerHTML='<summary>Ver texto leído del PDF</summary><pre></pre>';d.querySelector('pre').textContent=ORD_RAW;box.appendChild(d);}
   $('#ordQuitar').onclick=()=>{S.orden=[];ORD_RAW='';save();renderOrden();};
 }
+function loadItem(id){
+  const it=S.items.find(x=>x.id===id);if(!it)return;
+  resetCapture();$('#codigo').value=it.codigo;showProd();$('#cant').value=it.cant||'';
+  if(it.lote&&it.lote!=='N/A'){$('#lote').value=it.lote;D.edL=true;}
+  if(it.venc&&it.venc!=='N/A'){$('#venc').value=it.venc;D.edV=true;}
+  D.rid=id;D.frec=it.frec;upd();tab('cap');
+  flash('#capmsg','Toma la foto de la fecha y el lote, o déjalo en N/A. Luego "Guardar y siguiente".');
+}
 function loadPend(id){
   const o=(S.orden||[]).find(x=>x.id===id);if(!o)return;
   resetCapture();$('#codigo').value=o.codigo;showProd();$('#cant').value=o.cant||'';D.pid=id;if(o.frec)D.frec=o.frec;
@@ -752,17 +763,20 @@ async function cargarPdfs(fs,mode){
     if(!nlines){flash('#capmsg','Ese PDF no tiene texto (parece una imagen escaneada). Toma foto o escribe los códigos.');renderOrden();return;}
     S.orden=S.orden||[];let nuevos=[];
     for(const o of all){
-      const ex=mode==='recepcion'?S.orden.find(x=>normCode(x.codigo)===normCode(o.codigo)&&!x.cant&&x.fuente==='orden'):null;
-      if(ex){ex.cant=o.cant;ex.rev=o.rev;ex.fuente='recepcion';}else{S.orden.push(o);nuevos.push(o);}
+      if(o.nuevo){S.orden.push(o);continue;}
+      const ex=S.items.find(x=>normCode(x.codigo)===normCode(o.codigo)&&x.estado==='pend'&&!x.cant);
+      if(ex&&o.cant){ex.cant=o.cant;if(o.rev){ex.estado='revisar';ex.notas=['Revisa la cantidad.'];}continue;}
+      const sup=o.tipo==='S';
+      S.items.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),codigo:o.codigo,desc:o.desc,uom:o.uom,cant:o.cant||'',lote:'N/A',venc:'N/A',frec:fechaRecibo(),estado:o.rev&&mode==='recepcion'?'revisar':(sup?'ok':'pend'),notas:o.rev&&mode==='recepcion'?['Revisa la cantidad.']:[],edited:false});nuevos.push(o);
     }
-    save();renderOrden();
+    save();render();renderOrden();
     let msg;
     if(!all.length)msg='No encontré códigos del catálogo en ese PDF. Abre "Ver texto leído" para ver qué leí.';
-    else if(mode==='recepcion')msg=(saw?'✓ Recepción cargada: ':'⚠ No encontré la columna de cantidad recibida; revisa las cantidades. Cargados: ')+all.length+' producto(s).';
-    else msg='✓ Orden cargada: '+all.length+' producto(s). La cantidad la pones tú al recibir.';
+    else if(mode==='recepcion')msg=(saw?'✓ Recepción cargada: ':'⚠ No encontré la columna de cantidad recibida; revisa las cantidades. Cargados: ')+all.length+' hoja(s) en la Lista con la cantidad recibida. Completa fecha y lote con foto si quieres.';
+    else msg='✓ Orden cargada: '+all.length+' hoja(s) creadas en la Lista. En cada una toca "Completar con foto" (o Editar) para poner fecha, lote y cantidad.';
     if(miss.length)msg+=' ('+miss.length+' código(s) no están en el catálogo: al usarlos te pido la descripción).';
     const c=$('#capmsg');c.textContent=msg;c.classList.remove('hide');clearTimeout(c._t);c._t=setTimeout(()=>c.classList.add('hide'),7000);
-    if(all.length&&!D.pid)loadPend((nuevos[0]||S.orden[0]).id);
+    if(all.length){tab('lst');}
   }catch(err){flash('#capmsg','No se pudo leer el PDF ('+(err&&err.message||'error')+'). La primera vez necesita internet.');}
 }
 $('#bOrden').onclick=()=>$('#ordFile').click();
@@ -868,14 +882,15 @@ function render(){
   const box=$('#items');box.innerHTML='';
   const rev=S.items.filter(i=>i.estado==='revisar').length,ley=S.items.filter(i=>i.estado==='leyendo').length;
   $('#resumen').textContent=S.items.length+' producto(s) · '+Math.ceil(S.items.length/2)+' hoja(s)';
-  $('#warn').textContent=(ley?ley+' leyéndose… ':'')+(rev?rev+' por revisar (en amarillo).':'');
+  $('#warn').textContent=(ley?ley+' leyéndose… ':'')+(S.items.filter(i=>i.estado==='pend').length?S.items.filter(i=>i.estado==='pend').length+' por completar fecha/lote (en azul). ':'')+(rev?rev+' por revisar (en amarillo).':'');
   for(const it of S.items.slice().reverse()){
     const d=document.createElement('div');d.className='item';
-    const st=it.estado==='ok'?'<span class="st ok">✓ listo</span>':it.estado==='leyendo'?'<span class="st ley">leyendo…</span>':'<span class="st rev">⚠ revisar</span>';
-    d.innerHTML='<div class="t"><b></b>'+st+'</div><div class="d"></div><div class="a"><button data-a="e">Editar</button><button data-a="x">Quitar</button></div>';
+    const st=it.estado==='ok'?'<span class="st ok">✓ listo</span>':it.estado==='pend'?'<span class="st ley">📷 falta fecha/lote</span>':it.estado==='leyendo'?'<span class="st ley">leyendo…</span>':'<span class="st rev">⚠ revisar</span>';
+    d.innerHTML='<div class="t"><b></b>'+st+'</div><div class="d"></div><div class="a"><button data-a="c">Completar con foto</button><button data-a="e">Editar</button><button data-a="x">Quitar</button></div>';
     d.querySelector('b').textContent=it.codigo+' · '+it.desc;
     d.querySelector('.d').textContent='Cant: '+it.cant+' '+it.uom+'  |  Lote: '+it.lote+'  |  Venc: '+it.venc+(it.notas&&it.notas.length&&it.estado==='revisar'?'  — '+it.notas.join(' '):'');
     d.querySelector('[data-a=e]').onclick=()=>edit(it.id);
+    d.querySelector('[data-a=c]').onclick=()=>loadItem(it.id);
     d.querySelector('[data-a=x]').onclick=function(){if(this.dataset.s){S.items=S.items.filter(x=>x.id!==it.id);save();render();}else{this.dataset.s=1;this.textContent='¿Seguro? Toca otra vez';}};
     box.appendChild(d);
   }
@@ -886,7 +901,7 @@ $('#eCancel').onclick=()=>$('#modalEdit').classList.add('hide');
 $('#eSave').onclick=()=>{const it=S.items.find(x=>x.id===editId);if(it){it.cant=$('#eCant').value.trim().replace(',','.');it.lote=$('#eLote').value.trim().toUpperCase()||'N/A';it.venc=RecParser.normalizeFecha($('#eVenc').value,fmtFor(it.codigo))||'N/A';it.edited=true;if(it.estado!=='leyendo')it.estado='ok';save();render();}$('#modalEdit').classList.add('hide');};
 $('#bOk').onclick=()=>{S.items.forEach(i=>{if(i.estado==='revisar')i.estado='ok';});save();render();};
 $('#bNuevo').onclick=function(){
-  if(!S.items.length||this.dataset.s){S.items=[];this.dataset.s='';this.textContent='Nuevo recibo';save();render();askFecha();}
+  if(!S.items.length||this.dataset.s){S.items=[];S.orden=[];ORD_RAW='';renderOrden();this.dataset.s='';this.textContent='Nuevo recibo';save();render();askFecha();}
   else{this.dataset.s=1;this.textContent='¿Borrar todo? Toca otra vez';setTimeout(()=>{this.dataset.s='';this.textContent='Nuevo recibo';},4000);}
 };
 
