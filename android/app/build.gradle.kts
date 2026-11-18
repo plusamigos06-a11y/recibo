@@ -17,6 +17,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("recibo.keystore")
+            storePassword = "recibo123"
+            keyAlias = "recibo"
+            keyPassword = "recibo123"
+        }
+    }
 }
 dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.0")
