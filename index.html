@@ -656,12 +656,24 @@ function parseOrden(lines,mode){
       if(CAT.has(t)){ci=i;prod=CAT.get(t);break;}
       const k=t.replace(/^0+/,'');if(k.length>=5&&nz.has(k)){ci=i;prod=nz.get(k);break;}
     }
-    if(!prod)continue;
+    if(!prod){
+      if(/^\d{3,7}$/.test(toks[0]||'')&&toks.length>3&&/\d/.test(toks.slice(1).join(' '))){
+        let di=toks.findIndex(t=>/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(t));let end=di>1?di-1:Math.min(toks.length,6);
+        const desc=toks.slice(1,Math.max(2,end)).join(' ').toUpperCase();
+        const um=toks.find(t=>UOMW.test(strip(t)));
+        let q2=null;
+        if(mode==='recepcion'&&Array.isArray(ln)&&col){const c2=ln.filter(i=>/^[\d.,]+$/.test(i.s)&&numTok(i.s)!==null).map(i=>({n:numTok(i.s),d:Math.abs(cx(i)-col.x)})).sort((p,r)=>p.d-r.d)[0];if(c2&&c2.d<=50)q2=c2.n;}
+        res.miss=res.miss||[];
+        res.miss.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),codigo:toks[0].toUpperCase(),desc,uom:um?um.toUpperCase():'UNIDAD',tipo:'A',cant:q2===null?'':String(q2),rev:true,fuente:mode,nuevo:true});
+      }
+      continue;
+    }
     let q=null,rev=false;
     if(mode==='recepcion'){
       if(col&&Array.isArray(ln)){
         const cand=ln.filter(i=>/^[\d.,]+$/.test(i.s)&&numTok(i.s)!==null).map(i=>({n:numTok(i.s),d:Math.abs(cx(i)-col.x)})).sort((p,r)=>p.d-r.d)[0];
-        if(cand&&cand.d<=50)q=cand.n;else rev=true;
+        if(cand&&cand.d<=50)q=cand.n;
+        else{rev=true;const nums=ln.filter(i=>/^[\d.,]+$/.test(i.s)&&numTok(i.s)!==null);if(nums.length&&col.tag==='recibida'){q=numTok(nums[nums.length-1].s);}}
       }else{
         rev=true;const rest=toks.slice(ci+1).filter(r=>/^[\d.,]+$/.test(r)).map(numTok).filter(n=>n!==null);
         if(rest.length)q=rest[rest.length>=3?rest.length-3:0];
@@ -690,7 +702,7 @@ function renderOrden(){
 }
 function loadPend(id){
   const o=(S.orden||[]).find(x=>x.id===id);if(!o)return;
-  resetCapture();$('#codigo').value=o.codigo;showProd();$('#cant').value=o.cant||'';D.pid=id;upd();renderOrden();
+  resetCapture();$('#codigo').value=o.codigo;showProd();$('#cant').value=o.cant||'';D.pid=id;if(!D.prod&&$('#nDesc')){$('#nDesc').value=o.desc||'';$('#nUom').value=o.uom||'UNIDAD';$('#uomLbl').textContent='('+(o.uom||'')+')';}upd();renderOrden();
   tab('cap');$('#sug').classList.add('hide');
 }
 async function cargarPdfs(fs,mode){
@@ -698,7 +710,9 @@ async function cargarPdfs(fs,mode){
   flash('#capmsg',mode==='recepcion'?'Leyendo la recepción…':'Leyendo la orden…');
   try{
     let all=[],nlines=0,raw='',saw=false;
-    for(const f of fs){const ls=await pdfLines(f);nlines+=ls.length;raw+=ls.map(lineText).join('\n')+'\n';const r=parseOrden(ls,mode);saw=saw||r.sawCol;all=all.concat(r);}
+    let miss=[];
+    for(const f of fs){const ls=await pdfLines(f);nlines+=ls.length;raw+=ls.map(lineText).join('\n')+'\n';const r=parseOrden(ls,mode);saw=saw||r.sawCol;all=all.concat(r);miss=miss.concat(r.miss||[]);}
+    all=all.concat(miss);
     ORD_RAW=raw.split('\n').slice(0,150).join('\n');
     if(!nlines){flash('#capmsg','Ese PDF no tiene texto (parece una imagen escaneada). Toma foto o escribe los códigos.');renderOrden();return;}
     S.orden=S.orden||[];let nuevos=[];
@@ -711,6 +725,7 @@ async function cargarPdfs(fs,mode){
     if(!all.length)msg='No encontré códigos del catálogo en ese PDF. Abre "Ver texto leído" para ver qué leí.';
     else if(mode==='recepcion')msg=(saw?'✓ Recepción cargada: ':'⚠ No encontré la columna de cantidad recibida; revisa las cantidades. Cargados: ')+all.length+' producto(s).';
     else msg='✓ Orden cargada: '+all.length+' producto(s). La cantidad la pones tú al recibir.';
+    if(miss.length)msg+=' ('+miss.length+' código(s) no están en el catálogo: al usarlos te pido la descripción).';
     const c=$('#capmsg');c.textContent=msg;c.classList.remove('hide');clearTimeout(c._t);c._t=setTimeout(()=>c.classList.add('hide'),7000);
     if(all.length&&!D.pid)loadPend((nuevos[0]||S.orden[0]).id);
   }catch(err){flash('#capmsg','No se pudo leer el PDF ('+(err&&err.message||'error')+'). La primera vez necesita internet.');}
