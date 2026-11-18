@@ -482,8 +482,12 @@ try{const raw=localStorage.getItem(KEY);if(raw)S=Object.assign(S,JSON.parse(raw)
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}};
 
 /* ---------- catálogo ---------- */
+let CATTOK=null;
 const CAT=new Map();
-function loadCat(){CAT.clear();for(const r of CATALOGO_BASE)CAT.set(r[0],{codigo:r[0],desc:r[1],uom:r[2],tipo:r[3]||'A'});for(const r of S.extra)CAT.set(r.codigo,Object.assign({tipo:'A'},r));}
+const CODIGO_ALIAS={"0012":"0012-2","0057":"0057-2","0068":"0068-2","0112":"0112-2","0121":"0121-2","0191":"0191-2","0200":"0200-2","0214":"0214-2","0260":"0260-2","0261":"0261-2","0264":"0264-2","0268":"0268-2","0273":"0273-2","0380":"0380-2","0451":"0451-2","0489":"0489-2","0526":"0526-2","0527":"0527-2","0740":"0740-2","0753":"0753-2","0760":"0760-2","0817":"0817-2","0886":"0886-2","0933":"0933-2","0935":"0935-2","0941":"0941-2","1008":"1008-2","10230":"10230-2","11696":"11696-2","11951":"11951-2","1273":"1273-2","13139":"13139-2","13294":"13294-2","13395":"13395-2","13398":"13398-2","13551":"13551-2","13757":"13757-2","13855":"13855-2","13889":"13889-2","1395":"1395-2","13986":"13986-2","13999":"13999-2","14089":"14089-2","1431":"1431-2","1433":"1433-2","1435":"1435-2","1453":"1453-2","1454":"1454-2","1506":"1506-2","1517":"1517-2","1529":"1529-2","1531":"1531-2","15852":"15852-2","16333":"16333-2","16351":"16351-2","16567":"16567-2","16627":"16627-2","16664":"16664-2","16665":"16665-2","16666":"16666-2","16667":"16667-2","16671":"16671-2","17008":"17008-2","17827":"17827-2","1802":"1802-2","1815":"1815-2","1819":"1819-2","18355":"18355-2","18458":"18458-2","19077":"19077-2","19179":"19179-2","19180":"19180-2","19183":"19183-2","19186":"19186-2","19187":"19187-2","2016":"2016-2","2034":"2034-2","2059":"2059-2","2077":"2077-2","2102":"2102-2","2105":"2105-2","2125":"2125-2","2129":"2129-2","2151":"2151-2","2155":"2155-2","2173":"2173-2","2239":"2239-2","2286":"2286-2","2290":"2290-2","2296":"2296-2","2302":"2302-2","2307":"2307-2","2308":"2308-2","2310":"2310-2","2311":"2311-2","2315":"2315-2","2318":"2318-2","2379":"2379-2","2382":"2382-2","2384":"2384-2","2386":"2386-2","2393":"2393-2","2649":"2649-2","2729":"2729-2","2771":"2771-2","2777":"2777-2","2822":"2822-2","2828":"2828-2","2839":"2839-2","2846":"2846-2","2880":"2880-2","2893":"2893-2","2915":"2915-2","3175":"3175-2","3178":"3178-2","3271":"3271-2","3301":"3301-2","3333":"3333-2","3349":"3349-2","3369":"3369-2","3464":"3464-2","3466":"3466-2","3467":"3467-2","3468":"3468-2","3495":"3495-2","3530":"3530-2","3554":"3554-2","3556":"3556-2","4307":"4307-2","4784":"4784-2","4855":"4855-2","4859":"4859-2","4885":"4885-2","4913":"4913-2","4915":"4915-2","5047":"5047-2","5062":"5062-2","5066":"5066-2","5070":"5070-2","5108":"5108-2","5240":"5240-2","5376":"5376-2","5513":"5513-2","5857":"5857-2","5908":"5908-2","6452":"6452-2","6457":"6457-2","6478":"6478-2","6923":"6923-2","7341":"7341-2","7398":"7398-2","7431":"7431-2","7601":"7601-2","8013":"8013-2","8065":"8065-2","8446":"8446-2","8447":"8447-2","8448":"8448-2","8560":"8560-2","8654":"8654-2","9449":"9449-2","9488":"9488-2","9797":"9797-2"};
+function loadCat(){CAT.clear();for(const r of CATALOGO_BASE)CAT.set(r[0],{codigo:r[0],desc:r[1],uom:r[2],tipo:r[3]||'A'});for(const r of S.extra)CAT.set(r.codigo,Object.assign({tipo:'A'},r));
+  for(const b in CODIGO_ALIAS){const v=CAT.get(b),al=CODIGO_ALIAS[b];if(v&&!CAT.has(al))CAT.set(al,Object.assign({},v,{codigo:al,alias:true}));}CATTOK=null;}
+function aliasOf(v){const al=v&&CODIGO_ALIAS[v.codigo];return (al&&CAT.get(al))||v;}
 loadCat();
 const normCode=c=>String(c||'').trim().toUpperCase().replace(/\s+/g,'');
 function findCode(c){
@@ -704,6 +708,7 @@ function parseOrden(lines,mode){
       }
       continue;
     }
+    prod=aliasOf(prod);
     let q=null,rev=false;
     if(mode==='recepcion'){
       if(col&&Array.isArray(ln)){
@@ -796,10 +801,9 @@ function fechaCelda(s){
   if(!mo||d<1||d>31)return null;
   return RecParser.normalizeFecha(String(d).padStart(2,'0')+'/'+String(mo).padStart(2,'0')+'/'+y,false)||null;
 }
-let CATTOK=null;
 function nameToks(s){return strip(s).replace(/[\/\-,.()]/g,' ').split(/\s+/).filter(t=>t.length>0);}
 function matchProducto(name){
-  if(!CATTOK){CATTOK=[];for(const v of CAT.values())CATTOK.push({v,t:new Set(nameToks(v.desc))});}
+  if(!CATTOK){CATTOK=[];for(const v of CAT.values())if(!v.alias)CATTOK.push({v,t:new Set(nameToks(v.desc))});}
   const nt=nameToks(name);if(!nt.length)return [];
   const ns=new Set(nt);const sc=[];
   for(const c of CATTOK){let k=0;for(const t of ns){if(c.t.has(t))k++;else if(t.length>=4){for(const u of c.t){if(u.length>=4&&(u.startsWith(t)||t.startsWith(u))){k+=0.8;break;}}}}if(!k)continue;sc.push({v:c.v,s:2*k/(ns.size+c.t.size)});}
@@ -849,10 +853,10 @@ function addRecibo(rows){
     if(r.venc&&r.frec){const k=x=>{const p=x.split('/');return (+p[2])*10000+(MES3I(p[1]))*100+(+p[0]);};if(k(r.venc)<=k(r.frec))notas.push('La fecha de caducidad es igual o anterior a la de recibo; verifica.');}
     if(!r.cant)notas.push('No leí la cantidad.');
     if(sure){
-      const p=best.v;
+      const p=aliasOf(best.v);
       S.items.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),codigo:p.codigo,desc:p.desc,uom:p.uom,cant:r.cant,lote:(r.lote||'N/A').toUpperCase(),venc,frec:r.frec||fechaRecibo(),estado:notas.length?'revisar':'ok',notas,edited:false});ok++;
     }else{
-      S.orden.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),codigo:best&&best.s>=0.5?best.v.codigo:'',desc:r.nombre,uom:best?best.v.uom:'UNIDAD',tipo:best?best.v.tipo:'A',cant:r.cant,lote:(r.lote||'N/A').toUpperCase(),venc,frec:r.frec,rev:true,fuente:'recibo',cands:m.map(x=>x.v.codigo+' '+x.v.desc),notas});pend++;
+      S.orden.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),codigo:best&&best.s>=0.5?aliasOf(best.v).codigo:'',desc:r.nombre,uom:best?best.v.uom:'UNIDAD',tipo:best?best.v.tipo:'A',cant:r.cant,lote:(r.lote||'N/A').toUpperCase(),venc,frec:r.frec,rev:true,fuente:'recibo',cands:m.map(x=>x.v.codigo+' '+x.v.desc),notas});pend++;
     }
   }
   return {ok,pend};
