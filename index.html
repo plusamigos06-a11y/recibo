@@ -615,7 +615,7 @@ async function pdfLines(file){
     const its=tc.items.filter(i=>i.str&&i.str.trim()).map(i=>({s:i.str.trim(),x:i.transform[4],w:i.width||0,y:i.transform[5],p}));
     its.sort((u,v)=>v.y-u.y||u.x-v.x);
     let cur=null;const lines=[];
-    for(const i of its){if(!cur||Math.abs(cur.y-i.y)>3){cur={y:i.y,a:[]};lines.push(cur);}cur.a.push(i);}
+    for(const i of its){if(!cur||Math.abs(cur.y-i.y)>5){cur={y:i.y,a:[]};lines.push(cur);}cur.a.push(i);}
     for(const l of lines){l.a.sort((u,v)=>u.x-v.x);out.push(l.a);}
   }
   return out;
@@ -642,6 +642,18 @@ function findColX(lines,k){
     return {x:cx(i),tag:'recibida'};}}
   return null;
 }
+function qtyAt(lines,li,col){
+  const ln=lines[li];if(!col||!Array.isArray(ln))return null;
+  let pool=ln.slice();
+  const y0=ln[0]&&ln[0].y;
+  for(const d of [-1,1]){const nb=lines[li+d];if(Array.isArray(nb)&&nb[0]&&y0!==undefined&&Math.abs(nb[0].y-y0)<=10&&!nb.some(i=>/^\d{3,7}$/.test(i.s)&&nb.indexOf(i)===0))pool=pool.concat(nb);}
+  const nums=pool.filter(i=>/^[\d.,]+$/.test(i.s)&&numTok(i.s)!==null);
+  const c=nums.map(i=>({n:numTok(i.s),d:Math.abs(cx(i)-col.x),i})).sort((p,r)=>p.d-r.d)[0];
+  if(c&&c.d<=50)return {q:c.n,ok:true};
+  const own=ln.filter(i=>/^[\d.,]+$/.test(i.s)&&numTok(i.s)!==null);
+  if(own.length&&col.tag==='recibida')return {q:numTok(own[own.length-1].s),ok:false};
+  return null;
+}
 function parseOrden(lines,mode){
   mode=mode||'orden';
   const nz=new Map();for(const v of CAT.values()){const k=v.codigo.replace(/^0+/,'');if(k.length>=5&&!nz.has(k))nz.set(k,v);}
@@ -658,11 +670,12 @@ function parseOrden(lines,mode){
     }
     if(!prod){
       if(/^\d{3,7}$/.test(toks[0]||'')&&toks.length>3&&/\d/.test(toks.slice(1).join(' '))){
-        let di=toks.findIndex(t=>/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(t));let end=di>1?di-1:Math.min(toks.length,6);
+        let di=toks.findIndex((t,k)=>k>1&&(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(t)||/^[A-Z]{1,4}-\d{3,}$/i.test(t)||/^[\d.,]+$/.test(t)));
+        let end=di>1?di:toks.length;if(di>1&&/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(toks[di])&&/^[A-Z]{3,5}$/.test(toks[di-1]))end=di-1;
         const desc=toks.slice(1,Math.max(2,end)).join(' ').toUpperCase();
-        const um=toks.find(t=>UOMW.test(strip(t)));
+        const ums=toks.filter(t=>UOMW.test(strip(t)));const um=ums.length?ums[ums.length-1]:null;
         let q2=null;
-        if(mode==='recepcion'&&Array.isArray(ln)&&col){const c2=ln.filter(i=>/^[\d.,]+$/.test(i.s)&&numTok(i.s)!==null).map(i=>({n:numTok(i.s),d:Math.abs(cx(i)-col.x)})).sort((p,r)=>p.d-r.d)[0];if(c2&&c2.d<=50)q2=c2.n;}
+        if(mode==='recepcion'&&col){const r2=qtyAt(lines,li,col);if(r2&&r2.ok)q2=r2.q;}
         res.miss=res.miss||[];
         res.miss.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),codigo:toks[0].toUpperCase(),desc,uom:um?um.toUpperCase():'UNIDAD',tipo:'A',cant:q2===null?'':String(q2),rev:true,fuente:mode,nuevo:true});
       }
@@ -671,9 +684,7 @@ function parseOrden(lines,mode){
     let q=null,rev=false;
     if(mode==='recepcion'){
       if(col&&Array.isArray(ln)){
-        const cand=ln.filter(i=>/^[\d.,]+$/.test(i.s)&&numTok(i.s)!==null).map(i=>({n:numTok(i.s),d:Math.abs(cx(i)-col.x)})).sort((p,r)=>p.d-r.d)[0];
-        if(cand&&cand.d<=50)q=cand.n;
-        else{rev=true;const nums=ln.filter(i=>/^[\d.,]+$/.test(i.s)&&numTok(i.s)!==null);if(nums.length&&col.tag==='recibida'){q=numTok(nums[nums.length-1].s);}}
+        const r0=qtyAt(lines,li,col);if(r0){q=r0.q;if(!r0.ok)rev=true;}else rev=true;
       }else{
         rev=true;const rest=toks.slice(ci+1).filter(r=>/^[\d.,]+$/.test(r)).map(numTok).filter(n=>n!==null);
         if(rest.length)q=rest[rest.length>=3?rest.length-3:0];
