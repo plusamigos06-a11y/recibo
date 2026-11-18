@@ -93,7 +93,7 @@ details{margin-top:8px;font-size:13px;color:var(--mut)}details pre{white-space:p
 
 <main>
 <section id="cap">
-  <div style="display:flex;gap:8px;margin-bottom:10px"><button class="btn sec" id="bOrden" style="flex:1;font-size:16px;padding:12px">📄 Cargar orden (PDF)</button><button class="btn sec" id="bRecep" style="flex:1;font-size:16px;padding:12px">📥 Cargar recepción (PDF)</button><input type="file" id="ordFile" accept=".pdf,application/pdf" multiple class="hide"><input type="file" id="recFile" accept=".pdf,application/pdf" multiple class="hide"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px"><button class="btn sec" id="bOrden" style="font-size:16px;padding:12px">📄 Cargar orden (PDF)</button><button class="btn sec" id="bRecep" style="font-size:16px;padding:12px">📥 Cargar recepción (PDF)</button><button class="btn sec" id="bRecibo" style="font-size:16px;padding:12px;grid-column:1/-1">🧾 Cargar hoja de recibo completa (lote, fecha y cantidad)</button><input type="file" id="ordFile" accept=".pdf,application/pdf" multiple class="hide"><input type="file" id="recFile" accept=".pdf,application/pdf" multiple class="hide"><input type="file" id="rbFile" accept=".pdf,application/pdf" multiple class="hide"></div>
 <div id="ordenBox" class="hide"></div>
   <label for="codigo" style="margin-top:0">Código del producto (o nombre)</label>
   <div class="row">
@@ -587,7 +587,7 @@ function guardar(){
   const job=(p.tipo==='S')?null:D.job;
   const it={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),codigo:p.codigo,desc:p.desc,uom:p.uom,
     cant:$('#cant').value.trim().replace(',','.'),lote:$('#lote').value.trim().toUpperCase()||'N/A',venc:RecParser.normalizeFecha($('#venc').value,D.mdy)||'N/A',
-    frec:fechaRecibo(),estado:'ok',notas:[],edited:false};
+    frec:D.frec||fechaRecibo(),estado:'ok',notas:[],edited:false};
   if(job&&job.state==='pending'){it.estado='leyendo';job.itemId=it.id;}
   else if(job&&job.state==='done'&&job.res.revisar){it.estado='revisar';it.notas=job.res.notas;}
   S.items.push(it);
@@ -703,7 +703,7 @@ function renderOrden(){
   for(const o of S.orden){
     const r=document.createElement('div');r.className='r'+(D&&D.pid===o.id?' on':'');
     r.innerHTML='<span></span><button data-a="u">Usar</button><button class="x" data-a="x">✕</button>';
-    r.querySelector('span').textContent=o.codigo+' · '+o.desc+(o.cant?' — '+o.cant+' '+o.uom:' ('+o.uom+')')+(o.rev?' ⚠':'');
+    r.querySelector('span').textContent=o.codigo+' · '+o.desc+(o.cant?' — '+o.cant+' '+o.uom:' ('+o.uom+')')+(o.lote&&o.lote!=='N/A'?' · L:'+o.lote:'')+(o.rev?' ⚠':'');
     r.querySelector('[data-a=u]').onclick=()=>loadPend(o.id);
     r.querySelector('[data-a=x]').onclick=()=>{S.orden=S.orden.filter(x=>x.id!==o.id);save();renderOrden();};
     box.appendChild(r);
@@ -713,7 +713,11 @@ function renderOrden(){
 }
 function loadPend(id){
   const o=(S.orden||[]).find(x=>x.id===id);if(!o)return;
-  resetCapture();$('#codigo').value=o.codigo;showProd();$('#cant').value=o.cant||'';D.pid=id;if(!D.prod&&$('#nDesc')){$('#nDesc').value=o.desc||'';$('#nUom').value=o.uom||'UNIDAD';$('#uomLbl').textContent='('+(o.uom||'')+')';}upd();renderOrden();
+  resetCapture();$('#codigo').value=o.codigo;showProd();$('#cant').value=o.cant||'';D.pid=id;if(o.frec)D.frec=o.frec;
+  if(o.lote){$('#lote').value=o.lote;D.edL=true;}if(o.venc){$('#venc').value=o.venc;D.edV=true;}
+  if(!o.codigo&&o.desc){$('#codigo').value=o.desc.split(/\s+/).slice(0,2).join(' ');showProd();renderSug();}
+  if(o.cands&&o.cands.length)flash('#capmsg','Verifica el producto. Posibles: '+o.cands.join(' | '));
+  if(!D.prod&&$('#nDesc')){$('#nDesc').value=o.desc||'';$('#nUom').value=o.uom||'UNIDAD';$('#uomLbl').textContent='('+(o.uom||'')+')';}upd();renderOrden();
   tab('cap');$('#sug').classList.add('hide');
 }
 async function cargarPdfs(fs,mode){
@@ -746,7 +750,95 @@ $('#bRecep').onclick=()=>$('#recFile').click();
 $('#ordFile').addEventListener('change',e=>{const fs=[...e.target.files];e.target.value='';cargarPdfs(fs,'orden');});
 $('#recFile').addEventListener('change',e=>{const fs=[...e.target.files];e.target.value='';cargarPdfs(fs,'recepcion');});
 renderOrden();
-window.__ord={parseOrden,renderOrden,loadPend,S:()=>S};
+
+/* ---------- hoja de recibo completa (Reporte de Recepciones) ---------- */
+const MESX={ENE:1,JAN:1,FEB:2,MAR:3,ABR:4,APR:4,MAY:5,JUN:6,JUL:7,AGO:8,AUG:8,SEP:9,SET:9,OCT:10,NOV:11,DIC:12,DEC:12};
+function fechaCelda(s){
+  s=strip(String(s||'')).trim();let m,y,mo,d;
+  if(m=s.match(/^(\d{4})[-\/. ]([A-Z]{3})[-\/. ](\d{1,2})$/)){y=+m[1];mo=MESX[m[2]];d=+m[3];}
+  else if(m=s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/)){y=+m[1];mo=+m[2];d=+m[3];}
+  else if(m=s.match(/^(\d{1,2})[-\/. ]([A-Z]{3})[-\/. ](\d{4})$/)){d=+m[1];mo=MESX[m[2]];y=+m[3];}
+  else return null;
+  if(!mo||d<1||d>31)return null;
+  return RecParser.normalizeFecha(String(d).padStart(2,'0')+'/'+String(mo).padStart(2,'0')+'/'+y,false)||null;
+}
+let CATTOK=null;
+function nameToks(s){return strip(s).replace(/[\/\-,.()]/g,' ').split(/\s+/).filter(t=>t.length>0);}
+function matchProducto(name){
+  if(!CATTOK){CATTOK=[];for(const v of CAT.values())CATTOK.push({v,t:new Set(nameToks(v.desc))});}
+  const nt=nameToks(name);if(!nt.length)return [];
+  const ns=new Set(nt);const sc=[];
+  for(const c of CATTOK){let k=0;for(const t of ns){if(c.t.has(t))k++;else if(t.length>=4){for(const u of c.t){if(u.length>=4&&(u.startsWith(t)||t.startsWith(u))){k+=0.8;break;}}}}if(!k)continue;sc.push({v:c.v,s:2*k/(ns.size+c.t.size)});}
+  sc.sort((p,q)=>q.s-p.s);return sc.slice(0,3);
+}
+function parseRecibo(lines){
+  // encabezado
+  let hi=-1;for(let i=0;i<lines.length;i++){const l=lines[i];if(Array.isArray(l)&&l.some(x=>/CADUCIDAD/.test(strip(x.s)))&&l.some(x=>/CANTIDAD/.test(strip(x.s)))){hi=i;break;}}
+  if(hi<0)return {rows:[],err:'No encontré los encabezados (CADUCIDAD, CANTIDAD…).'};
+  const H=lines[hi],find=re=>H.find(x=>re.test(strip(x.s)));
+  const fechas=H.filter(x=>/^FECHA/.test(strip(x.s))).sort((p,q)=>p.x-q.x);
+  const cols=[];const push=(k,it)=>{if(it)cols.push({k,x:it.x});};
+  push('frec',fechas[0]);if(fechas[1])push('prod',fechas[1]);
+  push('nombre',find(/^PRODUCTO/));push('venc',find(/CADUCIDAD/));push('cant',find(/CANTIDAD/));push('uom',find(/^UOM/));push('lote',find(/^LOTE/));
+  // otras columnas del encabezado (para no mezclar texto)
+  for(const x of H){const s=strip(x.s);if(/^(TEMP|SUPLIDOR|ALERGENOS|ESTADO)/.test(s))cols.push({k:'otro',x:x.x});}
+  cols.sort((p,q)=>p.x-q.x);
+  const colOf=x=>{let k=null;for(const c of cols){if(c.x<=x+8)k=c.k;}return k;};
+  const fc=cols.find(c=>c.k==='frec');
+  const rows=[];let cur=null;
+  for(let i=hi+1;i<lines.length;i++){
+    const l=lines[i];if(!Array.isArray(l))continue;
+    const t=l.map(x=>x.s).join(' ');
+    if(/^\s*(CCP|NOTA)\b/i.test(strip(t)))break;
+    const first=l.find(x=>Math.abs(x.x-fc.x)<=14&&fechaCelda(x.s));
+    if(first){cur={frec:'',nombre:[],prod:'',venc:'',cant:'',uom:'',lote:''};rows.push(cur);}
+    if(!cur)continue;
+    for(const it of l){const k=colOf(it.x);
+      if(k==='frec'&&fechaCelda(it.s)&&!cur.frec)cur.frec=fechaCelda(it.s);
+      else if(k==='nombre')cur.nombre.push(it.s);
+      else if(k==='prod'){const f=fechaCelda(it.s);if(f)cur.prod=f;}
+      else if(k==='venc'){const f=fechaCelda(it.s);if(f)cur.venc=f;}
+      else if(k==='cant'){const n=numTok(it.s);if(n!==null&&/^[\d.,]+$/.test(it.s))cur.cant=String(Math.round(n*1000)/1000);}
+      else if(k==='uom'){cur.uom+=(cur.uom?' ':'')+it.s;}
+      else if(k==='lote'){cur.lote+=(cur.lote?'':'')+it.s.replace(/\s+/g,'');}
+    }
+  }
+  return {rows:rows.map(r=>({...r,nombre:r.nombre.join(' ')})),err:null};
+}
+function addRecibo(rows){
+  let ok=0,pend=0;S.orden=S.orden||[];
+  for(const r of rows){
+    const m=matchProducto(r.nombre);const best=m[0],second=m[1];
+    const sure=best&&best.s>=0.7&&(!second||best.s-second.s>=0.1);
+    const venc=r.venc||(r.prod?'PROD: '+r.prod:'N/A');
+    const notas=[];
+    if(r.venc&&r.frec){const k=x=>{const p=x.split('/');return (+p[2])*10000+(MES3I(p[1]))*100+(+p[0]);};if(k(r.venc)<=k(r.frec))notas.push('La fecha de caducidad es igual o anterior a la de recibo; verifica.');}
+    if(!r.cant)notas.push('No leí la cantidad.');
+    if(sure){
+      const p=best.v;
+      S.items.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),codigo:p.codigo,desc:p.desc,uom:p.uom,cant:r.cant,lote:(r.lote||'N/A').toUpperCase(),venc,frec:r.frec||fechaRecibo(),estado:notas.length?'revisar':'ok',notas,edited:false});ok++;
+    }else{
+      S.orden.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),codigo:best&&best.s>=0.5?best.v.codigo:'',desc:r.nombre,uom:best?best.v.uom:'UNIDAD',tipo:best?best.v.tipo:'A',cant:r.cant,lote:(r.lote||'N/A').toUpperCase(),venc,frec:r.frec,rev:true,fuente:'recibo',cands:m.map(x=>x.v.codigo+' '+x.v.desc),notas});pend++;
+    }
+  }
+  return {ok,pend};
+}
+const MES3I=m=>{const i=['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'].indexOf(m);return i<0?0:i+1;};
+$('#bRecibo').onclick=()=>$('#rbFile').click();
+$('#rbFile').addEventListener('change',async e=>{
+  const fs=[...e.target.files];e.target.value='';if(!fs.length)return;
+  flash('#capmsg','Leyendo la hoja de recibo…');
+  try{
+    let rows=[],raw='',err=null;
+    for(const f of fs){const ls=await pdfLines(f);raw+=ls.map(lineText).join('\n')+'\n';const r=parseRecibo(ls);if(r.err)err=r.err;rows=rows.concat(r.rows);}
+    ORD_RAW=raw.split('\n').slice(0,150).join('\n');
+    if(!rows.length){flash('#capmsg',(err||'No encontré filas de productos.')+' Abre "Ver texto leído del PDF".');renderOrden();return;}
+    const {ok,pend}=addRecibo(rows);save();render();renderOrden();
+    const c=$('#capmsg');c.textContent='✓ Hoja leída: '+rows.length+' producto(s). '+ok+' ya están en la lista con código, lote, fecha y cantidad'+(pend?'; '+pend+' por confirmar el código (abajo en azul).':'.');c.classList.remove('hide');clearTimeout(c._t);c._t=setTimeout(()=>c.classList.add('hide'),9000);
+    if(ok)tab('lst');
+  }catch(err){flash('#capmsg','No se pudo leer el PDF ('+(err&&err.message||'error')+'). La primera vez necesita internet.');}
+});
+window.__ord={parseOrden,renderOrden,loadPend,S:()=>S,parseRecibo,addRecibo,matchProducto,fechaCelda};
 
 function flash(sel,t){const e=$(sel);e.textContent=t;e.classList.remove('hide');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.add('hide'),2500);}
 
