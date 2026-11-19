@@ -1,0 +1,7 @@
+s=open('app.src.html',encoding='utf-8').read()
+p=open('parser.js',encoding='utf-8').read()
+c=open('catalogo.json',encoding='utf-8').read()
+a=open('alias.json',encoding='utf-8').read()
+s=s.replace('/*PARSER*/',p).replace('/*CATALOGO*/',c).replace('/*ALIAS*/',a)
+open('index.html','w',encoding='utf-8').write(s)
+print(len(s))
