@@ -1341,7 +1341,7 @@ $('#bPrint').onclick=()=>{
 
 /* ---------- impresión remota (cola en Supabase + estación en la PC) ---------- */
 const PCFG_KEY='recibo_print_cfg';
-(function(){try{const m=location.hash.match(/cfg=([^&]+)/);if(m){const c=JSON.parse(decodeURIComponent(escape(atob(m[1]))));if(c.url&&c.key&&c.clave){localStorage.setItem('recibo_print_cfg',JSON.stringify(c));history.replaceState(null,'',location.pathname);setTimeout(()=>alert('✅ Impresión remota configurada.'),500);}}}catch(e){}})();
+(function(){try{const m=location.hash.match(/cfg=([^&]+)/);if(m){const c=JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1])))));if(c.url&&c.key&&c.clave){localStorage.setItem('recibo_print_cfg',JSON.stringify(c));history.replaceState(null,'',location.pathname);setTimeout(()=>alert('✅ Impresión remota configurada.'),500);}}}catch(e){}})();
 function pcfg(){try{return JSON.parse(localStorage.getItem(PCFG_KEY)||'null');}catch(e){return null;}}
 function printDocHtml(items){
   const css='@page{size:letter;margin:.35in}*{box-sizing:border-box}body{margin:0;background:#fff}'+
