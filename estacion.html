@@ -8,6 +8,7 @@
 <div id="st">Iniciando…</div><div id="log"></div>
 <iframe id="fr" style="position:absolute;left:-9999px;width:8.5in;height:11in;border:0"></iframe>
 <script>
+try{const m=location.hash.match(/cfg=([^&]+)/);if(m){const c=JSON.parse(decodeURIComponent(escape(atob(m[1]))));if(c.url&&c.key&&c.clave){localStorage.setItem('estacion_cfg',JSON.stringify(c));history.replaceState(null,'',location.pathname);}}}catch(e){}
 const K='estacion_cfg';let cfg=null;try{cfg=JSON.parse(localStorage.getItem(K)||'null');}catch(e){}
 const $=s=>document.querySelector(s),st=$('#st'),log=m=>{$('#log').textContent=new Date().toLocaleTimeString()+'  '+m+'\n'+$('#log').textContent.slice(0,1500);};
 $('#sv').onclick=()=>{cfg={url:$('#u').value.trim().replace(/\/+$/,''),key:$('#k').value.trim(),clave:$('#c').value.trim()};localStorage.setItem(K,JSON.stringify(cfg));location.reload();};
