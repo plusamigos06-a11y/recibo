@@ -3,7 +3,7 @@
 <style>body{font-family:system-ui,Arial;background:#0f172a;color:#fff;margin:0;padding:24px}h1{margin:0 0 8px}#st{font-size:22px;padding:14px;border-radius:10px;background:#1e293b;margin:12px 0}
 .ok{background:#14532d!important}.err{background:#7f1d1d!important}input,button{font-size:18px;padding:10px;margin:4px 0;width:100%;max-width:520px;box-sizing:border-box;border-radius:8px;border:0}button{background:#2563eb;color:#fff;font-weight:700}
 #log{font-size:15px;color:#cbd5e1;white-space:pre-wrap}</style></head><body>
-<h1>🖨️ Estación de impresión</h1>
+<h1>🖨️ Estación de impresión <small style="font-size:14px;color:#94a3b8">v2</small></h1>
 <div id="cfg"><input id="u" placeholder="URL de Supabase"><input id="k" placeholder="Clave anon public"><input id="c" placeholder="Clave del almacén"><button id="sv">Guardar y empezar</button></div>
 <div id="st">Iniciando…</div><div id="log"></div>
 <iframe id="fr" style="position:absolute;left:-9999px;width:8.5in;height:11in;border:0"></iframe>
@@ -19,7 +19,7 @@ async function tick(){
   if(busy)return;busy=true;
   try{
     const r=await fetch(cfg.url+'/rest/v1/cola_impresion?estado=eq.pendiente&clave=eq.'+encodeURIComponent(cfg.clave)+'&order=id.asc&limit=1',{headers:H()});
-    if(!r.ok)throw new Error(r.status);
+    if(!r.ok){let t='';try{t=(await r.text()).slice(0,160);}catch(x){}throw new Error(r.status+' '+t);}
     st.className='ok';st.textContent='✅ Conectada y esperando trabajos… (deja esta página abierta)';
     const j=await r.json();
     if(j.length){
