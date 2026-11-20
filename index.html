@@ -139,6 +139,8 @@ details{margin-top:8px;font-size:13px;color:var(--mut)}details pre{white-space:p
   <div id="items"></div>
   <div class="bar">
     <button class="btn" id="bPrint">🖨️ Imprimir (2 por hoja)</button>
+    <button class="btn" id="bCloud" style="background:#0f766e">📤 Enviar a imprimir (PC del almacén)</button>
+    <button class="btn ghost" id="bCloudCfg">⚙ Configurar impresión remota</button>
     <button class="btn sec" id="bPrev" style="grid-column:1/-1">👁 Vista previa de etiquetas</button>
     <button class="btn" id="bXls">📊 Descargar Excel</button>
     <button class="btn ghost" id="bOk">Marcar todo revisado</button>
@@ -1334,6 +1336,40 @@ $('#bPrint').onclick=()=>{
   buildPrint();
   if(NB&&NB.print){try{NB.print();}catch(e){flash('#lstmsg','No se pudo abrir la impresión.');}return;}
   try{window.print();}catch(e){flash('#lstmsg','Este navegador bloqueó la impresión. Usa "Descargar Excel" y imprime desde ahí.');}
+};
+
+
+/* ---------- impresión remota (cola en Supabase + estación en la PC) ---------- */
+const PCFG_KEY='recibo_print_cfg';
+function pcfg(){try{return JSON.parse(localStorage.getItem(PCFG_KEY)||'null');}catch(e){return null;}}
+function printDocHtml(items){
+  const css='@page{size:letter;margin:.35in}*{box-sizing:border-box}body{margin:0;background:#fff}'+
+   '.sheet{height:10.2in;page-break-after:always;break-after:page;display:flex;flex-direction:column;justify-content:space-between}.sheet:last-child{page-break-after:auto;break-after:auto}'+
+   '.lab{height:4.95in;border:2px solid #000;display:grid;grid-template-columns:37% 63%;grid-template-rows:.7fr 1.15fr .85fr .7fr .7fr .7fr}'+
+   '.lab>div{border:1px solid #000;display:flex;align-items:center;padding:0 .12in;overflow:hidden;font-family:"Arial Narrow",Arial,sans-serif}'+
+   '.lab .k{font-weight:800;font-size:38px}.lab .v{font-weight:800;font-size:46px;word-break:break-word;line-height:1.05}'+
+   '.lab .v.sm{font-size:34px}.lab .v.xs{font-size:26px}.lab .empty{visibility:hidden}';
+  let h='';for(let i=0;i<items.length;i+=2){h+='<div class="sheet">'+labelHtml(items[i])+(items[i+1]?labelHtml(items[i+1]):'<div class="lab empty"></div>')+'</div>';}
+  return '<!doctype html><html><head><meta charset="utf-8"><style>'+css+'</style></head><body>'+h+'</body></html>';
+}
+$('#bCloudCfg').onclick=()=>{
+  const c=pcfg()||{};
+  const url=prompt('URL de Supabase (https://xxxx.supabase.co):',c.url||'');if(url===null)return;
+  const key=prompt('Clave anon public de Supabase:',c.key||'');if(key===null)return;
+  const clave=prompt('Clave del almacén (la misma en la PC):',c.clave||'');if(clave===null)return;
+  localStorage.setItem(PCFG_KEY,JSON.stringify({url:url.trim().replace(/\/+$/,''),key:key.trim(),clave:clave.trim()}));
+  flash('#lstmsg','Configuración guardada. Ya puedes enviar a imprimir.');
+};
+$('#bCloud').onclick=async()=>{
+  if(!S.items.length){flash('#lstmsg','No hay productos para imprimir.');return;}
+  const c=pcfg();if(!c||!c.url||!c.key||!c.clave){flash('#lstmsg','Primero toca "Configurar impresión remota".');return;}
+  flash('#lstmsg','Enviando a la impresora…');
+  try{
+    const r=await fetch(c.url+'/rest/v1/cola_impresion',{method:'POST',headers:{apikey:c.key,Authorization:'Bearer '+c.key,'Content-Type':'application/json',Prefer:'return=minimal'},
+      body:JSON.stringify({clave:c.clave,titulo:S.items.length+' etiquetas',html:printDocHtml(S.items)})});
+    if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,120));
+    flash('#lstmsg','✅ Enviado. Se imprime en la computadora del almacén en unos segundos.');
+  }catch(e){flash('#lstmsg','No se pudo enviar: '+e.message);}
 };
 
 /* ---------- Excel ---------- */
