@@ -1355,7 +1355,7 @@ function printDocHtml(items){
 }
 $('#bCloudCfg').onclick=()=>{
   const c=pcfg()||{};
-  const url=prompt('URL de Supabase (https://xxxx.supabase.co):',c.url||'');if(url===null)return;
+  const url0=prompt('URL de Supabase (https://xxxx.supabase.co):',c.url||'');if(url0===null)return;const url=(function(u){u=(u||'').trim();try{const m=u.match(/[?&]url=([^&]+)/);if(m)u=decodeURIComponent(m[1]);}catch(e){}const m2=u.match(/https:\/\/[a-z0-9]+\.supabase\.co/i);return m2?m2[0]:u;})(url0);
   const key=prompt('Clave anon public de Supabase:',c.key||'');if(key===null)return;
   const clave=prompt('Clave del almacén (la misma en la PC):',c.clave||'');if(clave===null)return;
   localStorage.setItem(PCFG_KEY,JSON.stringify({url:url.trim().replace(/\/+$/,''),key:key.trim(),clave:clave.trim()}));
