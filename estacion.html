@@ -3,9 +3,9 @@
 <style>body{font-family:system-ui,Arial;background:#0f172a;color:#fff;margin:0;padding:24px}h1{margin:0 0 8px}#st{font-size:22px;padding:14px;border-radius:10px;background:#1e293b;margin:12px 0}
 .ok{background:#14532d!important}.err{background:#7f1d1d!important}input,button{font-size:18px;padding:10px;margin:4px 0;width:100%;max-width:520px;box-sizing:border-box;border-radius:8px;border:0}button{background:#2563eb;color:#fff;font-weight:700}
 #log{font-size:15px;color:#cbd5e1;white-space:pre-wrap}</style></head><body>
-<h1>🖨️ Estación de impresión <small style="font-size:14px;color:#94a3b8">v2</small></h1>
+<h1>🖨️ Estación de impresión <small style="font-size:14px;color:#94a3b8">v3</small></h1>
 <div id="cfg"><input id="u" placeholder="URL de Supabase"><input id="k" placeholder="Clave anon public"><input id="c" placeholder="Clave del almacén"><button id="sv">Guardar y empezar</button></div>
-<div id="st">Iniciando…</div><div id="log"></div>
+<div id="st">Iniciando…</div><div id="info" style="font-size:15px;color:#94a3b8;word-break:break-all"></div><button id="chg" style="display:none;background:#475569;margin-top:10px">Cambiar datos de conexión</button><div id="log"></div>
 <iframe id="fr" style="position:absolute;left:-9999px;width:8.5in;height:11in;border:0"></iframe>
 <script>
 try{const m=location.hash.match(/cfg=([^&]+)/);if(m){const c=JSON.parse(decodeURIComponent(escape(atob(m[1]))));if(c.url&&c.key&&c.clave){localStorage.setItem('estacion_cfg',JSON.stringify(c));history.replaceState(null,'',location.pathname);}}}catch(e){}
@@ -31,5 +31,5 @@ async function tick(){
   }catch(e){st.className='err';st.textContent='⚠ Sin conexión con la base de datos ('+e.message+'). Reintentando…';}
   busy=false;
 }
-if(cfg&&cfg.url){$('#cfg').style.display='none';tick();setInterval(tick,3000);}else{st.textContent='Escribe los datos de conexión.';}
+if(cfg&&cfg.url){$('#info').textContent='URL: '+cfg.url+'\nClave: '+cfg.key.slice(0,22)+'…'+cfg.key.slice(-6)+' ('+cfg.key.length+' letras)  ·  Almacén: '+cfg.clave;$('#chg').style.display='block';$('#chg').onclick=()=>{localStorage.removeItem(K);location.href=location.pathname;};$('#cfg').style.display='none';tick();setInterval(tick,3000);}else{st.textContent='Escribe los datos de conexión.';}
 </script></body></html>
