@@ -1366,7 +1366,7 @@ $('#bCloud').onclick=async()=>{
   const c=pcfg();if(!c||!c.url||!c.key||!c.clave){flash('#lstmsg','Primero toca "Configurar impresión remota".');return;}
   flash('#lstmsg','Enviando a la impresora…');
   try{
-    const r=await fetch(c.url+'/rest/v1/cola_impresion',{method:'POST',headers:{apikey:c.key,Authorization:'Bearer '+c.key,'Content-Type':'application/json',Prefer:'return=minimal'},
+    const r=await fetch(c.url+'/rest/v1/cola_impresion',{method:'POST',headers:Object.assign({apikey:c.key,'Content-Type':'application/json',Prefer:'return=minimal'},c.key.startsWith('sb_')?{}:{Authorization:'Bearer '+c.key}),
       body:JSON.stringify({clave:c.clave,titulo:S.items.length+' etiquetas',html:printDocHtml(S.items)})});
     if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,120));
     flash('#lstmsg','✅ Enviado. Se imprime en la computadora del almacén en unos segundos.');

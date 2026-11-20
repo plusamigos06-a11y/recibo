@@ -13,7 +13,7 @@ const K='estacion_cfg';let cfg=null;try{cfg=JSON.parse(localStorage.getItem(K)||
 const $=s=>document.querySelector(s),st=$('#st'),log=m=>{$('#log').textContent=new Date().toLocaleTimeString()+'  '+m+'\n'+$('#log').textContent.slice(0,1500);};
 $('#sv').onclick=()=>{cfg={url:$('#u').value.trim().replace(/\/+$/,''),key:$('#k').value.trim(),clave:$('#c').value.trim()};localStorage.setItem(K,JSON.stringify(cfg));location.reload();};
 let busy=false;
-const H=()=>({apikey:cfg.key,Authorization:'Bearer '+cfg.key,'Content-Type':'application/json'});
+const H=()=>Object.assign({apikey:cfg.key,'Content-Type':'application/json'},cfg.key.startsWith('sb_')?{}:{Authorization:'Bearer '+cfg.key});
 function imprimir(html){return new Promise(res=>{const f=$('#fr');f.onload=()=>{setTimeout(()=>{try{f.contentWindow.focus();f.contentWindow.print();}catch(e){log('Error imprimiendo: '+e.message);}setTimeout(res,2500);},600);};f.srcdoc=html;});}
 async function tick(){
   if(busy)return;busy=true;
