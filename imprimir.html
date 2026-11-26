@@ -61,8 +61,8 @@ function imgPage(file){return new Promise((ok,no)=>{const u=URL.createObjectURL(
   im.onload=()=>{const M=2200,k=Math.min(1,M/Math.max(im.width,im.height)),cv=document.createElement('canvas');cv.width=Math.round(im.width*k);cv.height=Math.round(im.height*k);
     const cx=cv.getContext('2d');cx.fillStyle='#fff';cx.fillRect(0,0,cv.width,cv.height);cx.drawImage(im,0,0,cv.width,cv.height);URL.revokeObjectURL(u);ok(cv.toDataURL('image/jpeg',.85));};
   im.onerror=()=>no(new Error('No se pudo leer la imagen '+file.name));im.src=u;});}
-$('#f').onchange=async e=>{
-  const fs=[...e.target.files];pages=[];$('#th').innerHTML='';$('#go').disabled=true;if(!fs.length)return;
+async function procesar(fs){
+  pages=[];$('#th').innerHTML='';$('#go').disabled=true;if(!fs.length)return;
   titulo=fs.length===1?fs[0].name:fs.length+' archivos';
   try{
     const sc=parseFloat($('#q').value);
@@ -76,7 +76,20 @@ $('#f').onchange=async e=>{
     const mb=pages.reduce((a,p)=>a+p.length,0)/1e6;
     say(pages.length+' página(s) lista(s) · '+mb.toFixed(1)+' MB','ok');$('#go').disabled=false;
   }catch(err){pages=[];say('⚠ '+err.message,'err');}
-};
+}
+$('#f').onchange=e=>procesar([...e.target.files]);
+/* Dentro de la APK: archivos que llegan con "Compartir" o "Abrir con" */
+async function tomarCompartidos(){
+  if(!window.AndroidBridge||!AndroidBridge.shared)return;
+  let l=[];try{l=JSON.parse(AndroidBridge.shared());}catch(e){}
+  if(!l.length)return;
+  try{
+    say('Recibiendo archivo…');const fs=[];
+    for(const x of l){const r=await fetch('/shared/'+x.i);fs.push(new File([await r.blob()],x.name,{type:x.mime||''}));}
+    AndroidBridge.clearShared();await procesar(fs);
+  }catch(err){say('⚠ No se pudo abrir el archivo compartido: '+err.message,'err');}
+}
+window.__shared=tomarCompartidos;window.addEventListener('load',tomarCompartidos);
 function docHtml(){
   const css='@page{size:letter;margin:.25in}*{box-sizing:border-box}html,body{margin:0;background:#fff}.p{width:8in;height:10.45in;display:flex;align-items:center;justify-content:center;page-break-after:always;break-after:page;overflow:hidden}.p:last-child{page-break-after:auto;break-after:auto}.p img{max-width:100%;max-height:100%;object-fit:contain}';
   return '<!doctype html><html><head><meta charset="utf-8"><style>'+css+'</style></head><body>'+pages.map(p=>'<div class="p"><img src="'+p+'"></div>').join('')+'</body></html>';
